@@ -553,7 +553,8 @@ static uint32_t jtag_pp_idcode(void) {
 }
 
 static bool portapack_detect(void) {
-	return jtag_pp_idcode() == 0x020A50DD;
+//	return jtag_pp_idcode() == 0x020A50DD;
+	return jtag_pp_idcode() >0;
 }
 
 static const portapack_t portapack_instance = {
