@@ -277,7 +277,7 @@ __attribute__((unused)) static ui_color_t portapack_color_rgb(
 	return result;
 }
 
-static const ui_color_t color_background = { 0x001f };			//	{ 0x001f };
+static const ui_color_t color_background = { 0x07e0 };			//	{ 0x001f };
 static const ui_color_t color_foreground = { 0xffff };			//	{ 0xffff };
 
 static ui_point_t portapack_lcd_draw_int(const ui_point_t point, uint64_t value, size_t field_width) {
