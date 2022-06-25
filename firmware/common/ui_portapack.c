@@ -277,8 +277,8 @@ __attribute__((unused)) static ui_color_t portapack_color_rgb(
 	return result;
 }
 
-static const ui_color_t color_background = { 0x001f };			//	{ 0x001f };
-static const ui_color_t color_foreground = { 0xffff };			//	{ 0xffff };
+static const ui_color_t color_background = { 0xF800 };			// Original	{ 0x001f };   ,  (we go max RED : 0xF800 )
+static const ui_color_t color_foreground = { 0xffff };			// Original { 0xffff };
 
 static ui_point_t portapack_lcd_draw_int(const ui_point_t point, uint64_t value, size_t field_width) {
 	const ui_point_t point_done = {
@@ -581,7 +581,119 @@ const hackrf_ui_t portapack_hackrf_ui = {
 	&portapack_ui_operacake_gpio_compatible,
 };
 
+//--------------------
+
+static void to_string_hex_internal(char* p, const uint64_t n, const int32_t l) {
+	const uint32_t d = n & 0xf;
+	p[l] = (d > 9) ? (d + 55) : (d + 48);
+	if( l > 0 ) {
+		to_string_hex_internal(p, n >> 4, l - 1);
+	}
+}
+
+char* to_string_hex(const uint64_t n, int32_t l) {
+	char p[32];
+
+	
+	// l = std::min(l, 31L);
+	to_string_hex_internal(p, n, l - 1);
+	p[l] = 0;
+	return p;
+}
+
+
+
+static bool jtag_pp_tck(const bool tms_value) {
+	gpio_write(jtag_cpld.gpio->gpio_pp_tms, tms_value);
+
+	// 8 ns TMS/TDI to TCK setup
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+
+	gpio_set(jtag_cpld.gpio->gpio_tck);
+
+	// 15 ns TCK to TMS/TDI hold time
+	// 20 ns TCK high time
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+
+	gpio_clear(jtag_cpld.gpio->gpio_tck);
+
+	// 20 ns TCK low time
+	// 25 ns TCK falling edge to TDO valid
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+	__asm__("nop");
+
+	return gpio_read(jtag_cpld.gpio->gpio_pp_tdo);
+}
+
+
+
+static uint32_t jtag_pp_shift(const uint32_t tms_bits, const size_t count) {
+	uint32_t result = 0;
+	size_t bit_in_index = count - 1;
+	size_t bit_out_index = 0;
+	while(bit_out_index < count) {
+		const uint32_t tdo = jtag_pp_tck((tms_bits >> bit_in_index) & 1) & 1;
+		result |= (tdo << bit_out_index);
+
+		bit_in_index--;
+		bit_out_index++;
+	}
+	return result;
+}
+
+uint32_t jtag_pp_idcode2(void) {
+	cpld_jtag_take(&jtag_cpld);
+
+	/* TODO: Check if PortaPack TMS is floating or driven by an external device. */
+	gpio_output(jtag_cpld.gpio->gpio_pp_tms);
+
+	/* Test-Logic/Reset -> Run-Test/Idle -> Select-DR/Scan -> Capture-DR */
+	jtag_pp_shift(0b11111010, 8);
+
+	/* Shift-DR */
+	const uint32_t idcode = jtag_pp_shift(0, 32);
+
+	/* Exit1-DR -> Update-DR -> Run-Test/Idle -> ... -> Test-Logic/Reset */
+	jtag_pp_shift(0b11011111, 8);
+
+	cpld_jtag_release(&jtag_cpld);
+
+	return idcode;
+}
+
 const hackrf_ui_t* portapack_hackrf_ui_init() {
+	
+	const ui_point_t point_title = {
+		.x = 0,
+		.y = 240
+	};
+	const ui_point_t point_idcode = {
+		.x = 176,
+		.y = 240
+	};
+	
+	const char* s = "Portapack CPLD idcode";
+	uint32_t portapack_cpld_idcode;
+	portapack_cpld_idcode = jtag_pp_idcode2();
+
+	portapack_lcd_draw_string(point_title ,s);
+	portapack_lcd_draw_string(point_idcode, to_string_hex(portapack_cpld_idcode,8) );
+	
+	/* Delay >50us at 90-110MHz clock speed */
+	volatile uint32_t delay = 4294967295;  // ff ff ff ff 
+	while(delay--);
+
 	if( portapack() ) {
 		return &portapack_hackrf_ui;
 	} else {
